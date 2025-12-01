@@ -1,0 +1,7 @@
+{
+  "name": "NanoGenius",
+  "description": "A genius chatbot powered by Gemini 2.5 Flash. Features image generation, image editing, voice search, and comprehensive chat history.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

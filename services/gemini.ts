@@ -4,23 +4,13 @@ import { Message } from "../types";
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Helpers for base64
-const fileToBase64 = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => {
-        const result = reader.result as string;
-        // Remove data url prefix (e.g. "data:image/jpeg;base64,")
-        const base64 = result.split(',')[1];
-        resolve(base64);
-    };
-    reader.onerror = error => reject(error);
-  });
-};
+// This helper is used internally if needed, but App.tsx handles file reading mostly.
+// Kept simple for specific service logic.
 
 export const streamTextChat = async (
   history: Message[], 
-  newMessage: string
+  newMessage: string,
+  base64Image?: string
 ): Promise<AsyncGenerator<string, void, unknown>> => {
   const chat = ai.chats.create({
     model: 'gemini-2.5-flash',
@@ -32,7 +22,22 @@ export const streamTextChat = async (
       })),
   });
 
-  const result = await chat.sendMessageStream({ message: newMessage });
+  // Construct message payload
+  let messagePayload: any = newMessage;
+  
+  if (base64Image) {
+      messagePayload = [
+          { text: newMessage },
+          {
+              inlineData: {
+                  data: base64Image,
+                  mimeType: 'image/png'
+              }
+          }
+      ];
+  }
+
+  const result = await chat.sendMessageStream({ message: messagePayload });
 
   async function* generator() {
     for await (const chunk of result) {

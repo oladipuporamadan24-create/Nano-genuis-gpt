@@ -184,21 +184,11 @@ export default function App() {
     updateCurrentSession(newMessages); // Optimistic update
     setInput('');
     setTranscript('');
-    clearAttachment(); // Clear preview, but keep file ref for a moment if needed (logic handled by not clearing until sent) -> actually clears state, but we have dataUrl in msg
-
-    setIsLoading(true);
-
-    try {
-      // 2. Determine Action: Text Chat OR Image Gen/Edit
-      const isImageRequest = selectedFile !== null || 
-        userText.toLowerCase().match(/^(generate|draw|create|paint|render|add|remove|change|make)\b/i);
-
-      if (isImageRequest) {
-        // --- Image Generation / Editing (Nano Banana) ---
-        let base64Image: string | undefined = undefined;
-        
-        if (selectedFile) {
-            // Convert file to base64
+    
+    // Process image before clearing
+    let base64Image: string | undefined = undefined;
+    if (selectedFile) {
+        try {
             const reader = new FileReader();
             base64Image = await new Promise((resolve) => {
                 reader.onload = (e) => {
@@ -207,9 +197,33 @@ export default function App() {
                 };
                 reader.readAsDataURL(selectedFile);
             });
+        } catch (e) {
+            console.error("Failed to read file", e);
         }
+    }
 
-        const result = await generateOrEditImage(userText || "Describe this image", base64Image);
+    clearAttachment();
+    setIsLoading(true);
+
+    try {
+      // 2. Determine Action: Text Chat/Visual Q&A OR Image Gen/Edit
+      const textLower = userText.toLowerCase();
+
+      // Explicit image generation keywords
+      const genKeywords = ['generate', 'create', 'draw', 'render', 'make an image', 'create an image'];
+      const isExplicitGen = genKeywords.some(k => textLower.includes(k));
+
+      // Explicit image editing keywords (only valid if image exists)
+      // "Add a filter", "Remove the background", "Change the color", "Make it blue"
+      const editKeywords = ['add', 'remove', 'change', 'make', 'turn', 'apply', 'filter', 'style', 'replace'];
+      const isExplicitEdit = base64Image && editKeywords.some(k => textLower.includes(k));
+
+      const isImageRequest = isExplicitGen || isExplicitEdit;
+
+      if (isImageRequest) {
+        // --- Image Generation / Editing (Nano Banana) ---
+        // Use gemini-2.5-flash-image
+        const result = await generateOrEditImage(userText || "Generate an image", base64Image);
         
         const botMsg: Message = {
           id: uuidv4(),
@@ -221,7 +235,9 @@ export default function App() {
         updateCurrentSession([...newMessages, botMsg]);
 
       } else {
-        // --- Text Chat (Streaming) ---
+        // --- Text Chat / Visual Q&A (gemini-2.5-flash) ---
+        // If image is attached but not an edit request (e.g. "What is this?"), we stream it.
+        
         // Placeholder for bot message
         const botMsgId = uuidv4();
         const initialBotMsg: Message = {
@@ -234,8 +250,8 @@ export default function App() {
         let updatedWithBot = [...newMessages, initialBotMsg];
         updateCurrentSession(updatedWithBot);
 
-        // Stream response
-        const stream = await streamTextChat(newMessages, userText);
+        // Stream response (passing base64Image if present for Visual Q&A)
+        const stream = await streamTextChat(newMessages, userText, base64Image);
         let accumulatedText = '';
 
         for await (const chunk of stream) {
@@ -328,7 +344,7 @@ export default function App() {
                   How can I help you today?
                 </h2>
                 <p className="text-gray-500 dark:text-gray-400 max-w-md mb-8">
-                  I can answer questions, generate images, or edit photos you upload. Just ask!
+                  I can answer questions, generate images, or edit photos. Attach a photo and say "Make the background blue" to edit it!
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg">
                   <button 
@@ -418,7 +434,7 @@ export default function App() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={isListening ? "Listening..." : "Type a message, or describe an image edit..."}
+                placeholder={isListening ? "Listening..." : "Type, or say 'Make the background blue'..."}
                 className="flex-1 bg-transparent border-0 focus:ring-0 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-500 resize-none py-3 max-h-32 scrollbar-none"
                 rows={1}
                 style={{ minHeight: '48px' }}
